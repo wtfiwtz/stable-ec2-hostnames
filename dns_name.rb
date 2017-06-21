@@ -4,7 +4,8 @@
 # AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=y ruby dns_name.rb production Worker worker your-domain.com
 
 require 'rubygems'
-require 'aws/ec2'
+require 'bundler/setup'
+require 'aws-sdk'
 
 unless ARGV.count >= 4
   puts "You must specify an environment, role name, EC2 role and FQDN"
