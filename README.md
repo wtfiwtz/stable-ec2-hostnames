@@ -6,6 +6,8 @@ https://github.com/forward3d/cap-ec2
 
 Customize it for your environment and then add it to your server build (e.g. Cloudformation).
 
+`gem install bundler`
+`bundle install`
 `AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=y ruby dns_name.rb production Worker worker your-domain.com`
 
 This will create the name `production-Worker-1.your-domain.com` based on a looking of specific `Role`, `Project` and `Stage` tags.
