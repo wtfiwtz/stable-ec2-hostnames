@@ -54,7 +54,7 @@ def get_servers_for_role(ec2, role)
       instance_has_tag?(i, roles_tag, role) &&
         instance_has_tag?(i, stages_tag, stage) &&
         instance_has_tag?(i, project_tag, application) # &&
-        # (fetch(:ec2_filter_by_status_ok?) ? instance_status_ok?(i) : true)
+      # (fetch(:ec2_filter_by_status_ok?) ? instance_status_ok?(i) : true)
     end
   end
   servers.flatten.sort_by {|s| s.tags["Name"] || ''}
@@ -94,22 +94,43 @@ def ip_address_or_dns(instance)
   instance.public_dns_name || instance.public_ip_address || instance.private_ip_address
 end
 
-def calc_next_name_for_role(ec2, env, role, role_tag)
-  max_count = 1
-  seen_ids = []
-  api_servers = get_servers_for_role(ec2, role_tag).sort_by(&:launch_time)
-  api_servers.each do |s|
+def calc_next_name_for_role(ec2, curr_instance_id, env, role, role_tag)
+  seen_ids = {}
+  our_id = nil
+  pos_id = nil
+  api_servers = get_servers_for_role(ec2, role_tag).sort_by(&:instance_id)
+  api_servers.each_with_index do |s, i|
     name_id = s.tags['Name'].sub(/\A.*\-(\d+)\z/, '\1').to_i
-    max_count = name_id if name_id > max_count
-    max_count += 1 if seen_ids.include?(name_id)
-    seen_ids.push(name_id).uniq!
+    if s.instance_id == curr_instance_id
+      our_id = name_id
+      pos_id = i + 1
+    end
+    seen_ids[name_id] ||= []
+    seen_ids[name_id].push(s.instance_id).uniq!
   end
-  "#{env}-#{role}-#{max_count + 1}"
+  puts "Seen IDs: #{seen_ids}; pos: #{pos_id}"
+  return pick_one(seen_ids, pos_id, api_servers.size, env, role) if seen_ids[our_id].size > 1
+  "#{env}-#{role}-#{our_id}"
 end
 
+def pick_one(seen_ids, pos_id, count, env, role)
+  # Pick the nth slot if its free, based on the current list of active hosts
+  return "#{env}-#{role}-#{pos_id}" if !seen_ids[pos_id] || seen_ids[pos_id].empty?
+
+  # Otherwise, grab the next available
+  "#{env}-#{role}-#{count}"
+end
+
+curr_instance_id = File.readlink('/var/lib/cloud/instance').gsub(%r{\A/var/lib/cloud/instances/(.*)\z}, '\1')
+
 ec2 = for_each_region
-new_hostname = calc_next_name_for_role(ec2, ARGV[0], ARGV[1], ARGV[2])
-puts "Your new hostname is.... #{new_hostname}.#{ARGV[3]} \u{1F389}"
+new_hostname = calc_next_name_for_role(ec2, curr_instance_id, ARGV[0], ARGV[1], ARGV[2])
+fqdn = "#{new_hostname}.#{ARGV[3]}"
+puts "Your new hostname is.... #{fqdn} \u{1F389}"
+
+# Set the EC2 instance name to update it
+ec2[configured_regions.first].instances[curr_instance_id].tags['Name'] = new_hostname
+
 `hostname #{new_hostname}.#{ARGV[3]}`
 
 # `service newrelic-sysmond restart`
@@ -117,4 +138,3 @@ puts "Your new hostname is.... #{new_hostname}.#{ARGV[3]} \u{1F389}"
 f = File.open('/etc/hostname', 'w')
 f.puts("#{new_hostname}.#{ARGV[3]}")
 f.close
-
